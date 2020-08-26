@@ -29,7 +29,7 @@ void benchmark_lex(::benchmark::State &state, const char *source) {
     }
     ::benchmark::DoNotOptimize(l.peek().type);
   }
-  int bytes_per_iteration = std::strlen(source) + 1;
+  double bytes_per_iteration = static_cast<double>(std::strlen(source) + 1);
   state.counters["bytes"] = ::benchmark::Counter(
       bytes_per_iteration * state.iterations(), ::benchmark::Counter::kIsRate);
   state.counters["byte"] = ::benchmark::Counter(
