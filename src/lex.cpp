@@ -25,6 +25,9 @@
 #include <string_view>
 #include <type_traits>
 
+// @@@ cond
+#include <emmintrin.h>
+
 #define QLJS_CASE_IDENTIFIER_START \
   case '$':                        \
   case '_':                        \
@@ -557,19 +560,115 @@ void lexer::parse_number() {
   }
 }
 
+class bool_vector_16 {
+ public:
+  [[gnu::always_inline]] explicit bool_vector_16(__m128i data) noexcept
+      : data_(data) {}
+
+  [[gnu::always_inline]] friend bool_vector_16 operator|(
+      bool_vector_16 x, bool_vector_16 y) noexcept {
+    return bool_vector_16(_mm_or_si128(x.data_, y.data_));
+  }
+
+  [[gnu::always_inline]] friend bool_vector_16 operator&(
+      bool_vector_16 x, bool_vector_16 y) noexcept {
+    return bool_vector_16(_mm_and_si128(x.data_, y.data_));
+  }
+
+  [[gnu::always_inline]] int find_first_false() const noexcept {
+    return __builtin_ctz(~this->mask());
+  }
+
+ private:
+  [[gnu::always_inline]] std::uint32_t mask() const noexcept {
+    return _mm_movemask_epi8(this->data_);
+  }
+
+  __m128i data_;
+};
+
+// @@@ move
+class char_vector_16 {
+ public:
+  [[gnu::always_inline]] explicit char_vector_16(__m128i data) noexcept
+      : data_(data) {}
+
+  [[gnu::always_inline]] static char_vector_16 load(const char* data) {
+    __m128i vector;
+    std::memcpy(&vector, data, sizeof(vector));
+    return char_vector_16(vector);
+  }
+
+  [[gnu::always_inline]] static char_vector_16 repeated(std::uint8_t c) {
+    return char_vector_16(_mm_set1_epi8(c));
+  }
+
+  [[gnu::always_inline]] friend char_vector_16 operator|(
+      char_vector_16 x, char_vector_16 y) noexcept {
+    return char_vector_16(_mm_or_si128(x.data_, y.data_));
+  }
+
+  [[gnu::always_inline]] friend bool_vector_16 operator==(
+      char_vector_16 x, char_vector_16 y) noexcept {
+    return bool_vector_16(_mm_cmpeq_epi8(x.data_, y.data_));
+  }
+
+  [[gnu::always_inline]] friend bool_vector_16 operator<(
+      char_vector_16 x, char_vector_16 y) noexcept {
+    return bool_vector_16(_mm_cmplt_epi8(x.data_, y.data_));
+  }
+
+  [[gnu::always_inline]] friend bool_vector_16 operator>(
+      char_vector_16 x, char_vector_16 y) noexcept {
+    return bool_vector_16(_mm_cmpgt_epi8(x.data_, y.data_));
+  }
+
+ private:
+  __m128i data_;
+};
+
 void lexer::parse_identifier() {
-  switch (this->input_[0]) {
+  const char* input = this->input_;
+  switch (*input) {
   QLJS_CASE_IDENTIFIER_START:
     break;
     default:
       assert(false);
       break;
   }
+  input += 1;
 
-  this->input_ += 1;
-  while (this->is_identifier_character(this->input_[0])) {
-    this->input_ += 1;
+  for (;;) {
+    // @@@ assumes padding after \0
+    char_vector_16 characters = char_vector_16::load(input);
+    constexpr std::uint8_t upper_to_lower_mask = 'a' - 'A';
+    static_assert(('A' | upper_to_lower_mask) == 'a');
+    char_vector_16 lower_cased_characters =
+        characters | char_vector_16::repeated(upper_to_lower_mask);
+    bool_vector_16 is_alpha =
+        lower_cased_characters > char_vector_16::repeated('a' - 1) &
+        lower_cased_characters < char_vector_16::repeated('z' + 1);
+    bool_vector_16 is_digit = characters > char_vector_16::repeated('0' - 1) &
+                              characters < char_vector_16::repeated('9' + 1);
+    bool_vector_16 is_dollar = characters == char_vector_16::repeated('$');
+    bool_vector_16 is_underscore = characters == char_vector_16::repeated('_');
+
+    bool_vector_16 is_identifier_character =
+        is_alpha | is_digit | is_dollar | is_underscore;
+
+    int identifier_character_count = is_identifier_character.find_first_false();
+    for (int i = 0; i < identifier_character_count; ++i) {
+      assert(this->is_identifier_character(this->input_[i]));
+    }
+    input += identifier_character_count;
+
+    bool is_all_identifier_characters = identifier_character_count == 16;
+    if (!is_all_identifier_characters) {
+      break;
+    }
   }
+  this->input_ = input;
+  assert(!this->is_identifier_character(this->input_[0]));
 }
 
 QLJS_WARNING_PUSH
