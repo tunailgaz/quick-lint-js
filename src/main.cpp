@@ -25,6 +25,7 @@
 #include <quick-lint-js/lint.h>
 #include <quick-lint-js/location.h>
 #include <quick-lint-js/options.h>
+#include <quick-lint-js/padded-string.h>
 #include <quick-lint-js/parse.h>
 #include <quick-lint-js/text-error-reporter.h>
 #include <quick-lint-js/unreachable.h>
@@ -242,7 +243,9 @@ class multi_visitor {
 
 void process_file(const std::string &input, error_reporter *error_reporter,
                   bool print_parser_visits) {
-  parser p(input.c_str(), error_reporter);
+  // TODO(strager): Avoid copying the input.
+  padded_string padded_input{std::string(input)};
+  parser p(&padded_input, error_reporter);
   linter l(error_reporter);
   if (print_parser_visits) {
     debug_visitor logger;

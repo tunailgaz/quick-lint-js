@@ -24,6 +24,8 @@
 #include <vector>
 
 namespace quick_lint_js {
+class padded_string;
+
 struct source_position {
   using line_number_type = int;
   using offset_type = std::size_t;
@@ -88,6 +90,7 @@ bool operator!=(source_code_span, std::string_view) noexcept;
 class locator {
  public:
   explicit locator(const char* input) noexcept;
+  explicit locator(const padded_string* input) noexcept;
 
   source_range range(source_code_span) const;
   source_position position(const char*) const noexcept;
